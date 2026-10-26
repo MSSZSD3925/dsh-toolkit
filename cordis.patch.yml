@@ -26,6 +26,13 @@
           dsh_port: 19387
           pair_link_autosend: false
           pair_link_address: ''
+          link_proxy_port: 62566
+          link_public_host: ''
+          approval_remote: true
+          approval_timeout_secs: 300
+          questions_remote: true
+          question_timeout_secs: 1800
+          progress_secs: 0
         restart:
           enabled: true
           task_name: 'DSH Restart Now'
