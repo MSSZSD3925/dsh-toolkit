@@ -13,7 +13,7 @@
 
 ## 安装
 
-    dsh plugin --profile desktop add link:<插件目录>
+    dsh plugin --profile desktop add link:C:/Users/<you>/Documents/deepseek-harness/default-workspace/_tools/dsh-toolkit
     powershell -ExecutionPolicy Bypass -File .\install-restart.ps1
 
 装完**必须**核对 `C:\Users\<you>\.dsh\profiles\desktop\package.json` 的
@@ -25,11 +25,16 @@ bundles 可能漏写，表现为重启后插件静默不生效。
 ## 配置
 
 `cordis.patch.yml` 是分组的：`qq:` / `pause:` / `restart:` 分别对应三个模块的
-Config。**键必须与 schema 完全一致**，多一个键严格校验就让整个插件加载失败，
-而失败只写在启动 DSH 的终端里，现象是"装好了但一点反应都没有"。
+Config。写成 schema 里有的键；写错的键不会让插件加载失败（schemastery 的 object
+是非 strict 的，未知键会被原样 merge 进 config 后忽略），但那个配置也就等于没写，
+排查时容易误以为生效了。三个模块的配置键风格统一为 snake_case；pause 的旧键
+`routePrefix` / `waitSeconds` 仍被兼容读取。
 
 换个机器要改的键：`qq.allow_users`（QQ 号白名单，空列表等于拒收所有人）、
 `qq.napcat_path`、`qq.dsh_exe`、`restart.*_path`。
+
+pause 段的键：`pause.route_prefix`（默认 `/dsh-pause`）、`pause.wait_seconds`
+（没人管时多少秒自动继续，0 表示一直等）。
 
 ## QQ 远程驾驶（qq）
 
@@ -85,6 +90,16 @@ agent 从 running 回到 idle 时自动撤销并推一条「提权结束」，�
   超过 100 MB 拒绝，路径不对会明确报错。模型侧对应工具 `onebot_send_file`。
 - `#progress [秒|off]`：定时推送在跑会话的最新输出（间隔夹在 10–3600 秒），
   `progress_secs > 0` 时 DSH 启动即自动开。
+  每条推送带会话标题与最新一条助手正文的摘要。
+
+### 局域网代理的边界
+
+`#link` 在没有远程插件或拿不到公网地址时，会起一个本机代理（`link_proxy_port`，
+默认 62566）转发到 DSH 的 webserver。代理监听 `0.0.0.0`，但只接受来自局域网/本机
+地址的连接（回环、10/8、192.168/16、172.16–31、100.64/10、169.254/16、IPv6 ULA），
+其他来源直接断开；转发时把 Host/Origin/Referer 改写成回环地址，让上游当成 loopback。
+也就是说：**能连到这个端口、并且已经拿到链接的人**，在 DSH 眼里就是本机用户。
+只在一个你信得过的网络里开它；`#link` 的链接本次运行有效。
 
 ### 与配置有关的键
 
@@ -107,11 +122,19 @@ agent 从 running 回到 idle 时自动撤销并推一条「提权结束」，�
    中文变乱码并报语法错。
 3. 注册计划任务用 `Register-ScheduledTask`，不要拼 `schtasks /Create /TR`——
    嵌套引号会被拆开。校验点：`Get-ScheduledTask -TaskName 'DSH Restart Now'` 存在且 State=Ready。
+4. 重启脚本里 `schtasks /Run` 返回 0 只代表"请求被接受"，任务被禁用或被策略拦住时
+   进程不会起来；脚本会在第 60 秒仍没看到进程时直接执行 exe 兜底。
+
+请求文件的清理：正常路径由 `restart.ps1` 在成功后删除；触发失败、或续跑布置失败时
+插件自己回滚；`dsh_restart action=status` 也会把明显过期的请求文件清掉，
+不会永远显示「待执行」。日志 `dsh-restart.log` / `dsh-qq-router.log` 超过 2 MB 时
+滚成 `.1`，只留一份旧的。
 
 ## 重启后自动续跑
 
 排程重启时给 `dsh_restart` 带上 `resume_prompt`，插件会把
-`{ sessionId, prompt, attempts, max, expireAt }` 写到 `~/.dsh/dsh-toolkit-resume.json`
+`{ sessionId, prompt, attempts, max, expireAt }` 写到 `$DSH_HOME`（没设就是
+`~/.dsh`）下的 `dsh-toolkit-resume.json`
 （在 DSH 进程之外的磁盘上，重启杀不掉的只有这个）。下次启动时
 `lib/index.js` 调一次 `runPendingResume`，把那条提示注入同一个会话，
 让被打断的任务自己接着干。
@@ -120,8 +143,16 @@ agent 从 running 回到 idle 时自动撤销并推一条「提权结束」，�
 
 1. 单条任务最多 `resume_max` 次（默认 2，硬上限 5），用完即删记录。
 2. 布置有 TTL（`resume_ttl_secs`，默认 900 秒，从预计重启时刻算），过期丢弃。
-3. 窗口计数器 `~/.dsh/dsh-toolkit-resume.json.guard`：30 分钟内累计满 5 次就停，
+3. 窗口计数器 `dsh-toolkit-resume.json.guard`（与记录同目录）：30 分钟内累计满 5 次就停，
    即使反复重新布置也会被拦。
+
+注入成功之后才删记录（注入失败会保留，下次启动按剩余次数重试），并立刻
+`sessions.flush` 落盘。
+
+`qq_waker install` 会生成三份文件：`waker.config.json`（UTF-8 JSON）、
+`waker-launch.vbs`（UTF-16LE，登录自启用，路径含中文也不会丢字符）、
+`waker-start.ps1`（UTF-8 BOM，计划任务「DSH Start」跑它；里面先看 DSH 进程在不在，
+已在跑就直接退出，避免和 `restart.ps1` 同时拉起两个实例）。
 
 校验点：
 

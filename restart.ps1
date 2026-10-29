@@ -13,7 +13,7 @@
 #>
 param(
   [string]$Task = 'DSH Start',
-  [string]$Exe = '<DSH 安装目录>\DeepSeek Harness.exe',
+  [string]$Exe = 'D:\DSH\DeepSeek Harness.exe',
   [int]$DefaultDelaySecs = 20
 )
 
@@ -67,14 +67,15 @@ L "[ps] 进程已清零"
 $taskOk = ($LASTEXITCODE -eq 0)
 L $(if ($taskOk) { "[ps] 已请求计划任务 $Task 拉起" } else { "[ps] 计划任务 $Task 启动失败，直接执行 exe" })
 
-if (-not $taskOk -or -not (Test-Path $Exe)) {
-  if (Test-Path $Exe) {
-    Start-Process -FilePath $Exe -WorkingDirectory (Split-Path $Exe)
-    L "[ps] 已直接执行 $Exe"
-  } else {
+$fallbackTried = $false
+if (-not $taskOk) {
+  if (-not (Test-Path $Exe)) {
     L "[ps] 找不到可执行文件 $Exe，无法拉起"
     exit 2
   }
+  Start-Process -FilePath $Exe -WorkingDirectory (Split-Path $Exe)
+  $fallbackTried = $true
+  L "[ps] 已直接执行 $Exe"
 }
 
 $ok = $false
@@ -83,6 +84,15 @@ for ($i = 1; $i -le 90; $i++) {
   Start-Sleep -Seconds 1
   $waited = $i
   if ((DshProcs).Count -gt 0) { $ok = $true; break }
+  # schtasks 返回 0 只代表"请求被接受"：任务被禁用或被策略拦住时进程根本不会起。
+  # 60 秒还没动静就直接执行 exe 兜底，别干等到 90 秒超时。
+  if (-not $fallbackTried -and $waited -ge 60) {
+    if (Test-Path $Exe) {
+      L "[ps] 计划任务 60 秒内没拉起进程，直接执行 $Exe 兜底"
+      Start-Process -FilePath $Exe -WorkingDirectory (Split-Path $Exe)
+    }
+    $fallbackTried = $true
+  }
 }
 if ($ok) {
   L "[ps] 已拉起（等了 $waited 秒，进程 $((DshProcs).Count) 个）"

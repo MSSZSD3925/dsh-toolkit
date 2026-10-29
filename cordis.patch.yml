@@ -1,8 +1,9 @@
 # dsh-toolkit —— QQ 远程驾驶 + 界面暂停按钮 + 重启 DSH（含重启后自动续跑）
 #
 # 配置是分组的：qq / pause / restart 三段各自对应 lib/<模块>.js 里的 Config。
-# 键必须与 schema 完全一致：多一个键严格校验就让插件加载失败，而失败只写在启动
-# DSH 的终端里，现象是「装好了但一点反应都没有」。改 schema 时同步改这里。
+# 键名与 schema 一致；写错的键不会让插件加载失败（schemastery 的 object 非 strict，
+# 未知键被原样 merge 后忽略），但那段配置等于没写，排查时容易误判成已生效。
+# 改 schema 时同步改这里。
 - insert:
     - id: dsh-toolkit
       name: dsh-toolkit
@@ -23,7 +24,6 @@
           napcat_path: '<NapCat 安装目录>\NapCatQQ-Desktop.exe'
           start_wait_secs: 90
           dsh_exe: '<DSH 安装目录>\DeepSeek Harness.exe'
-          dsh_port: 19387
           pair_link_autosend: false
           pair_link_address: ''
           link_proxy_port: 62566
@@ -36,7 +36,6 @@
         restart:
           enabled: true
           task_name: 'DSH Restart Now'
-          launch_task: 'DSH Start'
           default_delay_secs: 20
           min_delay_secs: 5
           log_path: 'C:\Users\<you>\.dsh\dsh-restart.log'

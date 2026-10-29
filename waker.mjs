@@ -5,9 +5,11 @@
  * 任何 QQ 命令都收不到。所以"用命令拉起 DSH"必须由一个不依赖 DSH 的进程来做。
  *
  * 行为：
- *   连 NapCat 的 WS 3001，只认白名单 QQ 的 #start / #启动 / #开机。
- *   先探 19387：通了就说明 DSH 在跑 —— 此时保持沉默，让插件那边正常回答，
- *   避免一句话两个回复。没通才启动 DeepSeek Harness.exe，并轮询到端口可用为止。
+ *   连 NapCat 的 WS（地址取自同目录 waker.config.json，默认 3001），
+ *   只认白名单 QQ 的 #start / #启动 / #开机。
+ *   判「DSH 在不在」看两件事：进程数 > 0，且插件心跳是新的（桌面端 webserver
+ *   用随机端口，不能拿端口判断）。已经在跑就保持沉默，让插件那边正常回答，
+ *   避免一句话两个回复；没跑才拉起 DeepSeek Harness.exe，然后轮询到心跳更新为止。
  *
  * 运行方式（登录时由计划任务拉起，隐藏窗口）：
  *   pythonw.exe run-hidden.py <node.exe> <本文件>
@@ -30,10 +32,9 @@ const CFG = {
   allow: [123456789],
   prefix: '#',
   exe: 'D:\\DSH\\DeepSeek Harness.exe',
-  // 这个任务的动作就是直接跑 exe，没有包装脚本 —— 由任务计划服务启动，
-  // 不继承 run-hidden.py 的 Job Object，不会被 kill-on-close 带走。
+  // 这个任务的动作是跑 waker-start.ps1（插件安装时生成）：先看 DSH 是否已在跑，
+  // 没跑才启动 exe。任务由任务计划服务启动，不继承 run-hidden.py 的 Job Object。
   task: 'DSH Start',
-  port: 19387,
   waitSecs: 150,
   singletonPort: 38017,
 }
@@ -131,8 +132,9 @@ function launch(exe) {
  * 通过计划任务拉起 DSH。
  *
  * 为什么绕这一道：唤醒器自己跑在 run-hidden.py 的 Job Object 里，从 Job 内
- * detach 子进程可能被拒；而计划任务由服务端启动，天然脱离该 Job，且任务动作
- * 自带"19387 没通才启动"的守卫（--launch-if-down），不会起第二个实例。
+ * detach 子进程可能被拒；而计划任务由服务端启动，天然脱离该 Job。任务动作是
+ * 插件生成的 waker-start.ps1，里面先看进程在不在、在跑就直接退出，所以不会起
+ * 第二个实例（DSH 自己的单实例锁是第二道保险）。
  */
 function launchViaTask(taskName) {
   return new Promise((resolve) => {
@@ -265,11 +267,10 @@ async function onMessage(bot, ev) {
             return
           }
         } else {
-          aliveSeen = false
-        }
-        if (aliveSeen && c === 0) {
-          log(`[waker] 第 ${attempt} 轮：进程起了又退，准备重试`)
-          break
+          if (aliveSeen) {
+            log(`[waker] 第 ${attempt} 轮：进程起了又退，准备重试`)
+            break
+          }
         }
       }
     }
@@ -318,7 +319,7 @@ async function acquireSingleton() {
 async function main() {
   const singleton = await acquireSingleton()
   if (!singleton) process.exit(0)
-  // 一次性模式：登录自启用。只在 19387 没通时才启动，避免同一个 profile 起两个实例。
+  // 一次性模式：登录自启用。只在 DSH 进程不在时才启动，避免同一个 profile 起两个实例。
   if (process.argv.includes('--launch-if-down')) {
     const running = (await dshProcessCount()) > 0
     log(`[waker] launch-if-down：${running ? '已有进程，跳过' : '没有进程，启动 DSH'}`)
