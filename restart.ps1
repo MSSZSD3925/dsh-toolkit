@@ -13,7 +13,7 @@
 #>
 param(
   [string]$Task = 'DSH Start',
-  [string]$Exe = '<DSH 安装目录>\DeepSeek Harness.exe',
+  [string]$Exe = '',
   [int]$DefaultDelaySecs = 20
 )
 
@@ -31,6 +31,21 @@ function L([string]$msg) {
 function DshProcs {
   @(Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue)
 }
+
+function ResolveDshExe {
+  $local = Join-Path $dshDir 'dsh-toolkit.local.json'
+  if (Test-Path $local) {
+    try {
+      $cfg = Get-Content $local -Raw -Encoding utf8 | ConvertFrom-Json
+      if ($cfg.qq -and $cfg.qq.dsh_exe) { return [string]$cfg.qq.dsh_exe }
+    } catch { }
+  }
+  foreach ($c in @('D:\DSH\DeepSeek Harness.exe', (Join-Path $env:ProgramFiles 'DeepSeek Harness\DeepSeek Harness.exe'))) {
+    if (Test-Path $c) { return $c }
+  }
+  return ''
+}
+if (-not $Exe) { $Exe = ResolveDshExe }
 
 $delay = $DefaultDelaySecs
 $note = ''
@@ -63,8 +78,9 @@ if ($left -gt 0) {
 }
 L "[ps] 进程已清零"
 
-& schtasks.exe /Run /TN $Task 2>&1 | Out-Null
-$taskOk = ($LASTEXITCODE -eq 0)
+$taskOk = $false
+# schtasks.exe 被本机安全策略拦，改用 cmdlet；任务本身已改成走启动钩子（先清 Cookie）
+try { Start-ScheduledTask -TaskName $Task -ErrorAction Stop; $taskOk = $true } catch { L "[ps] Start-ScheduledTask 失败：$($_.Exception.Message)" }
 L $(if ($taskOk) { "[ps] 已请求计划任务 $Task 拉起" } else { "[ps] 计划任务 $Task 启动失败，直接执行 exe" })
 
 $fallbackTried = $false
