@@ -5,6 +5,9 @@
   "description": "DSH 自用小功能合集：QQ 远程驾驶、界面暂停按钮、重启与重启后自动续跑、贵时段纪律按时间注入",
   "type": "module",
   "main": "./lib/index.js",
+  "scripts": {
+    "test": "node test/local-config.mjs"
+  },
   "files": [
     "lib",
     "cordis.patch.yml",

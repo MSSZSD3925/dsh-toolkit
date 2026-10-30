@@ -34,6 +34,31 @@ Config。写成 schema 里有的键；写错的键不会让插件加载失败（
 换个机器要改的键：`qq.allow_users`（QQ 号白名单，空列表等于拒收所有人）、
 `qq.napcat_path`、`qq.dsh_exe`、`restart.*_path`。
 
+### 本机真值放本地覆盖文件
+
+仓库是公开的，`cordis.patch.yml` 里只有占位符（`123456789`、`<NapCat 安装目录>`…）。
+真值写在 `${DSH_HOME:-~/.dsh}/dsh-toolkit.local.json`，插件启动时深合并覆盖模板：
+
+```json
+{
+  "qq": { "allow_users": [392593439], "napcat_path": "D:/…", "dsh_exe": "D:/…" },
+  "restart": { "log_path": "C:/Users/…/dsh-restart.log",
+               "request_path": "C:/Users/…/dsh-restart-request.json",
+               "resume_path": "C:/Users/…/dsh-toolkit-resume.json" }
+}
+```
+
+只写要覆盖的键，数组与标量直接替换。文件不存在或 JSON 坏了只告警、不影响启动；
+启动日志出现 `[dsh-toolkit] 本地配置已合并：…` 就说明生效了。
+
+这样 `git checkout/reset/pull` 冲掉 `cordis.patch.yml` 也不会把 QQ 白名单和路径一起
+冲成占位符——2026-10-30 23:46 的一次 reset 就因此让重启静默失效、QQ 全部失联。
+
+**从终端启动 DSH** 用 `_tools/start-dsh.cmd`：它会清掉 `ELECTRON_RUN_AS_NODE`
+（否则 exe 被当 Node 跑、秒退），再让计划任务 `DSH Start` 拉起（shell 起的进程会随
+会话结束被回收；本机 `schtasks.exe` 被安全策略拦，脚本里用的是 cmdlet）。
+
+
 pause 段的键：`pause.route_prefix`（默认 `/dsh-pause`）、`pause.wait_seconds`
 （没人管时多少秒自动继续，0 表示一直等）。
 
