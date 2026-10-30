@@ -1,9 +1,8 @@
-# dsh-toolkit —— QQ 远程驾驶 + 界面暂停按钮 + 重启 DSH（含重启后自动续跑）
+# dsh-toolkit —— QQ 远程驾驶 + 界面暂停按钮 + 重启 DSH（含重启后自动续跑）+ 贵时段纪律
 #
-# 配置是分组的：qq / pause / restart 三段各自对应 lib/<模块>.js 里的 Config。
-# 键名与 schema 一致；写错的键不会让插件加载失败（schemastery 的 object 非 strict，
-# 未知键被原样 merge 后忽略），但那段配置等于没写，排查时容易误判成已生效。
-# 改 schema 时同步改这里。
+# 配置是分组的：qq / pause / restart / peak 四段各自对应 lib/<模块>.js 里的 Config。
+# 键必须与 schema 完全一致：多一个键严格校验就让插件加载失败，而失败只写在启动
+# DSH 的终端里，现象是「装好了但一点反应都没有」。改 schema 时同步改这里。
 - insert:
     - id: dsh-toolkit
       name: dsh-toolkit
@@ -43,3 +42,8 @@
           resume_path: 'C:\Users\<you>\.dsh\dsh-toolkit-resume.json'
           resume_max: 2
           resume_ttl_secs: 900
+        peak:
+          enabled: true
+          utc_offset_hours: 8
+          morning: '9-12'
+          afternoon: '14-18'

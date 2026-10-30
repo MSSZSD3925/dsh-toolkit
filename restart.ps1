@@ -13,7 +13,7 @@
 #>
 param(
   [string]$Task = 'DSH Start',
-  [string]$Exe = 'D:\DSH\DeepSeek Harness.exe',
+  [string]$Exe = '<DSH 安装目录>\DeepSeek Harness.exe',
   [int]$DefaultDelaySecs = 20
 )
 

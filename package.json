@@ -1,8 +1,8 @@
 {
   "name": "dsh-toolkit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "DSH 自研功能合集：QQ 远程驾驶（审批/提问镜像、本轮提权、文件回传、进度推送）+ 暂停按钮 + 重启",
+  "description": "DSH 自用小功能合集：QQ 远程驾驶、界面暂停按钮、重启与重启后自动续跑、贵时段纪律按时间注入",
   "type": "module",
   "main": "./lib/index.js",
   "files": [
