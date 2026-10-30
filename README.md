@@ -52,7 +52,9 @@ profile 的第二块屏幕：消息注入的是「你本人发的普通消息」
 | `#set <路由>` / `#use` / `#pin` | 设定默认会话，重启 DSH 也不丢 |
 | `#start` | 查 OneBot / NapCat 状态，没起来就拉起并等登录 |
 | `#link` | 取一个手机能打开的网页链接（局域网/隧道，本次运行有效） |
-| `#restart [秒]` | 重启 DSH（默认 15 秒后），改完插件用它生效 |
+| `#restart [秒]` | 重启 DSH（默认 20 秒后）；有别的对话在跑时先等它们跑完，回一份「短编号 + 标题 + 任务」清单 |
+| `#restart force` | 不等待、立刻重启；要再发一次 `#restart confirm` 二次确认（2 分钟内有效） |
+| `#restart cancel` | 取消推迟中的重启 |
 | `#running` | 列出正在运行的会话（带停止提示） |
 | `#stop [路由]` | 停掉正在输出的会话，等价客户端停止按钮（中断当前轮 + 清排队消息） |
 | `#msg [路由]` / `#last [路由]` | 该会话最新的一条助手回复 / 你自己发的最后一条 |
@@ -115,6 +117,29 @@ agent 从 running 回到 idle 时自动撤销并推一条「提权结束」，�
 「DSH Restart Now」；任务由**任务计划服务**执行，所以它在 DSH 进程树之外，
 能杀完 DSH 再把它拉回来。
 
+### 有别的任务在跑时先等
+
+默认不打断正在跑的对话：`dsh_restart`（或 `#restart`）发现其它会话处于运行态
+就不立刻排程，只记一条「延后重启」，每 2 秒看一次，等这些会话全部回到 idle
+才写请求文件、触发计划任务。返回与 QQ 回复里会列出这些会话的
+**短编号、标题和正在做的任务**（任务取最后一条用户消息，去掉 QQ 注入前缀）。
+
+- 客户端（`dsh_restart`）：返回 `status: waiting` 和一份 `busy` 清单；提示模型用
+  `ask_user_question` 问用户是否要立刻重启（提问会按已有配置镜像到 QQ）。
+  用户同意后，用 `force: true` 加上次返回的 `force_token` 再调一次，
+  令牌 60 秒有效、一次性，用来保证「问过用户」。
+- QQ（`#restart`）：直接在 QQ 回清单和两个后续命令，
+  `#restart force` → 再回清单 → `#restart confirm` 才真正强制重启（2 分钟内有效，
+  `#restart cancel` 取消）。QQ 路径不需要模型参与。
+- `action=cancel` / `#restart cancel` 取消还在等待的延后重启。
+- 延后重启真的触发时，会用 `broadcast` 给白名单里的 QQ 用户各发一条通知。
+- 延后状态只存在内存里：DSH 真重启后自然消失；等待期间手动关掉 DSH 也不会误触发。
+- 频率提醒：客户端每次启动都会往 `127.0.0.1` 追加一条 `dsh-auth-*` Cookie 且从不回收，
+  累计约 60 条后请求头会越过本地 Host 的 16 KB 上限，启动报
+  「desktop welcome: Web authentication failed」（实际是 431）。重启越频繁越容易踩；
+  踩到时清掉 `Network/Cookies` 里 `127.0.0.1` 的 `dsh-auth-*` 即可，
+  `~/.dsh/.credentials.yaml` 不用动。新加的「等任务跑完再重启」也顺带减少了无谓重启。
+
 环境约束：
 
 1. 不能从 DSH 进程内部"杀自己再 spawn"——桌面宿主用 Job Object（kill-on-close）
@@ -149,6 +174,20 @@ agent 从 running 回到 idle 时自动撤销并推一条「提权结束」，�
 
 注入成功之后才删记录（注入失败会保留，下次启动按剩余次数重试），并立刻
 `sessions.flush` 落盘。
+
+续跑的两个兜底：
+
+- **模型路由**：界面选中的路由如果是 `deepseek-official`，而 `~/.dsh/.credentials.yaml`
+  里没有对应 key，就换成 `deepseek-account`（同模型）再注入。不换的后果是会话被钉在
+  没有凭证的路由上，每轮在发请求前就失败，表现为"静默不回复"。判定依据是凭证文件里
+  出现 `deepseek-official` 且其后 600 字符内有 `apiKey` / `api_key` / `DEEPSEEK_API_KEY` / `key:`。
+  日志对应行：`[resume] 默认模型路由 deepseek-official 没有凭证，续跑改用 deepseek-account/…`。
+- **Agent 预设**：冷启动 resume 必须带 `agentPreset` + `setup`（`agentPresets.resolve(undefined)`
+  之后 `mount`）。不带预设时被恢复的 agent 只有全局注册的插件工具，read/write/bash 这类
+  标准工具不会出现，现象就是"基础工具全消失"。启动早期预设可能还没注册完，`resolve`
+  会抛 `Unknown agent preset: standard`，所以这里最多重试 20 秒再放弃。
+  校验点：日志出现 `冷启动 resume 使用的模型：…，预设：standard`，且续跑后的会话里
+  read/glob 可以正常调用。
 
 `qq_waker install` 会生成三份文件：`waker.config.json`（UTF-8 JSON）、
 `waker-launch.vbs`（UTF-16LE，登录自启用，路径含中文也不会丢字符）、
